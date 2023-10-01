@@ -15,25 +15,25 @@ import Control.Monad (when)
 import Data.Char (toLower)
 import Data.Foldable (traverse_)
 import Data.Function (on)
-import Data.List (intersperse, isInfixOf, nub)
+import Data.List (isInfixOf)
 import Data.Map qualified as M
 import Data.Maybe (mapMaybe)
 import Data.Monoid (All (..))
 import GHC.IO (unsafeInterleaveIO)
 import System.Exit (exitSuccess)
-import System.IO (Handle, hGetLine, hIsEOF, hPutStrLn)
+import System.IO (Handle, hGetLine, hIsEOF)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, proc)
 import XMonad qualified
-import XMonad.Actions.Commands (defaultCommands)
 import XMonad.Actions.CopyWindow (copyToAll, kill1, killAllOtherCopies)
 import XMonad.Actions.Navigation2D (Navigation2DConfig (..), centerNavigation, lineNavigation, singleWindowRect, windowGo, windowSwap, withNavigation2DConfig)
 import XMonad.Actions.Promote (promote)
-import XMonad.Core (recompile)
-import XMonad.Hooks.DynamicLog (PP (..), dynamicLogWithPP, shorten, xmobarColor, xmobarPP)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks, manageDocks)
 import XMonad.Hooks.ManageHelpers ((~?))
-import XMonad.Hooks.StatusBar (StatusBarConfig, statusBarProp, withSB)
+import XMonad.Hooks.StatusBar (StatusBarConfig)
+import XMonad.Hooks.StatusBar qualified as StatusBar
+import XMonad.Hooks.StatusBar.PP (PP (..))
+import XMonad.Hooks.StatusBar.PP qualified as PP
 import XMonad.Hooks.TaffybarPagerHints (pagerHints)
 import XMonad.Layout.Decoration (ModifiedLayout)
 import XMonad.Layout.Gaps (Gaps, gaps)
@@ -51,7 +51,6 @@ import XMonad.Layout.SubLayouts (GroupMsg (..), pullGroup, subLayout)
 import XMonad.Layout.Tabbed (Direction2D (..), Theme (..), addTabs)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.WindowNavigation (windowNavigation)
-import XMonad.Operations (restart)
 import XMonad.Prompt (XPConfig (..), XPPosition (..), emacsLikeXPKeymap)
 import XMonad.Prompt.ConfirmPrompt (confirmPrompt)
 import XMonad.Prompt.Shell (shellPrompt)
@@ -60,7 +59,6 @@ import XMonad.StackSet qualified as W
 import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.EZConfig (mkKeymap)
 import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
-import XMonad.Util.Run (spawnPipe)
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -525,19 +523,20 @@ restartEventHook = \case
 
 statusBarConfig :: StatusBarConfig
 statusBarConfig =
-  statusBarProp "xmobar-solomon" $
+  StatusBar.statusBarProp "xmobar-solomon" $
     pure $
-      xmobarPP
+      PP.def
         { ppCurrent = (<> "=visible"),
           ppLayout = id,
           ppTitle = id,
           ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
           ppHiddenNoWindows = (<> "=empty"),
-          ppWsSep = ","
+          ppWsSep = ",",
+          ppSep = "|"
         }
 
 myConfig =
-  withSB statusBarConfig $
+  StatusBar.withSB statusBarConfig $
     XMonad.def
       { XMonad.layoutHook = myLayoutHook,
         XMonad.manageHook = myManageHook <> XMonad.manageHook XMonad.def,
