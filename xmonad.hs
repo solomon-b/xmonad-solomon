@@ -528,11 +528,12 @@ statusBarConfig =
   statusBarProp "xmobar-solomon" $
     pure $
       xmobarPP
-        { ppCurrent = xmobarColor yellow mempty,
-          ppLayout = id, -- drop 18
-          ppTitle = xmobarColor foreground mempty,
-          ppHidden = \ws -> if ws == "NSP" then mempty else ws,
-          ppHiddenNoWindows = const mempty
+        { ppCurrent = (<> "=visible"),
+          ppLayout = id,
+          ppTitle = id,
+          ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
+          ppHiddenNoWindows = (<> "=empty"),
+          ppWsSep = ","
         }
 
 myConfig =
