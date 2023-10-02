@@ -567,7 +567,7 @@ instance Aeson.ToJSON Workspace' where
   toJSON ws = Aeson.object
       [ "index" Aeson..= index ws
       , "state" Aeson..=  state ws
-      -- , "windows" Aeson..= windows ws
+      , "windows" Aeson..= windows ws
       ]
 
 strip :: String -> String
