@@ -562,14 +562,14 @@ logToJSON = do
     extras <- mapM (XMonad.userCodeDef Nothing) $ ppExtras PP.def
 
     -- window title
-    wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
+    -- wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
 
     let result = UTF8.toString $ Aeson.encode $
            Aeson.object
              [ "workspaces" Aeson..=
                  Aeson.object (fmap (uncurry (Aeson..=) . first Aeson.fromString) workspaces)
              , "layout" Aeson..= layout
-             , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
+             -- , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
              , "extras" Aeson..= extras
              ]
 
