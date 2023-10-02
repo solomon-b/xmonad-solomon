@@ -1,8 +1,10 @@
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TupleSections #-}
 
 -- TODO:
 -- - Setup dashboard view with widgets
@@ -12,12 +14,13 @@
 
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Data.Aeson qualified as Aeson
 import Data.Char (toLower)
 import Data.Foldable (traverse_)
 import Data.Function (on)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, sortBy)
 import Data.Map qualified as M
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, catMaybes)
 import Data.Monoid (All (..))
 import GHC.IO (unsafeInterleaveIO)
 import System.Exit (exitSuccess)
@@ -35,6 +38,7 @@ import XMonad.Hooks.StatusBar qualified as StatusBar
 import XMonad.Hooks.StatusBar.PP (PP (..))
 import XMonad.Hooks.StatusBar.PP qualified as PP
 import XMonad.Hooks.TaffybarPagerHints (pagerHints)
+import XMonad.Hooks.UrgencyHook qualified as UrgencyHooks
 import XMonad.Layout.Decoration (ModifiedLayout)
 import XMonad.Layout.Gaps (Gaps, gaps)
 import XMonad.Layout.MultiToggle (Toggle (..), mkToggle, single)
@@ -59,6 +63,12 @@ import XMonad.StackSet qualified as W
 import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.EZConfig (mkKeymap)
 import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
+import qualified XMonad.Util.NamedWindows as NamedWindows
+import Data.Aeson.Key (toString)
+import qualified Data.ByteString.Lazy.UTF8 as UTF8
+import Control.Arrow (Arrow(first))
+import Data.Coerce (coerce)
+import qualified Data.Aeson.Key as Aeson
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -334,7 +344,7 @@ fetchUnits = do
 
 readEmojis :: IO [String]
 readEmojis = do
-  let p = proc "cat" ["/home/solomon/.local/share/emoji"] 
+  let p = proc "cat" ["/home/solomon/.local/share/emoji"]
   (_, hout, _, _) <- createProcess p {std_out = CreatePipe}
   case hout of
     Just hout' -> hGetLines hout'
@@ -345,7 +355,7 @@ emojiPrompt = do
   let action e = XMonad.spawn $ "echo " <> e <> " | xclip -sel clip"
   emojis <- fmap (\e -> (e, action e)) <$> XMonad.liftIO readEmojis
   xmonadPromptCT "Emojis" emojis promptConfig
-       
+
 --------------------------------------------------------------------------------
 -- Scratchpads
 
@@ -381,10 +391,10 @@ toggleDashboard :: XMonad.X ()
 toggleDashboard = do
   XS.get >>= \case
     On -> do
-      XMonad.spawn "/home/solomon/.config/eww/close_dashboard" 
+      XMonad.spawn "/home/solomon/.config/eww/close_dashboard"
       XS.put Off
     Off -> do
-      XMonad.spawn "/home/solomon/.config/eww/open_dashboard" 
+      XMonad.spawn "/home/solomon/.config/eww/open_dashboard"
       XS.put On
 
 --------------------------------------------------------------------------------
@@ -399,6 +409,12 @@ workSpaceNav c = do
 myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ())
 myKeys c =
   mkKeymap c $
+    -- System
+    
+    -- System
+    
+    -- System
+    
     -- System
     [ ("M-<Space> q", exitPrompt),
       ("M-<Space> w", layoutPrompt),
@@ -502,6 +518,68 @@ myMouseBindings XMonad.XConfig {XMonad.modMask = modm} =
     ]
 
 --------------------------------------------------------------------------------
+-- Status Bar 
+
+-- | Creates a 'StatusBarConfig' that uses property logging to @_XMONAD_LOG@, which
+-- is set in 'xmonadDefProp'
+statusBarProp :: String -- ^ The command line to launch the status bar
+              -> StatusBarConfig
+statusBarProp = statusBarPropTo StatusBar.xmonadDefProp
+
+-- | Like 'statusBarProp', but lets you define the property
+statusBarPropTo :: String -- ^ Property to write the string to
+                -> String -- ^ The command line to launch the status bar
+                -> StatusBarConfig
+statusBarPropTo prop cmd = StatusBar.statusBarGeneric cmd $
+    StatusBar.xmonadPropLog' prop =<< logToJSON
+
+-- | 
+--
+-- {
+--   "workspaces": {
+--     "1": "visible",
+--     "2": "current',
+--     "3": "hidden",
+--     "4": "hidden"
+--   },
+--   "layout": "mirror",
+--   "title": "derp derp derp"
+--  }
+logToJSON :: XMonad.X String
+logToJSON = do
+    winset <- XMonad.gets XMonad.windowset
+
+    -- layout description
+    let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
+
+    -- workspace list
+    let visible = (, "visible" :: String) . W.tag . W.workspace <$> W.visible winset
+    let current = (, "current") . W.tag . W.workspace $ W.current winset
+    let hidden = (, "hidden") . W.tag <$> W.hidden winset
+    let workspaces = Data.List.sortBy (\x y -> compare (fst x) (fst y)) $ current : visible <> hidden
+
+    -- run extra loggers, ignoring any that generate errors.
+    extras <- mapM (XMonad.userCodeDef Nothing) $ ppExtras PP.def
+
+    -- window title
+    wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
+
+    let result = UTF8.toString $ Aeson.encode $
+           Aeson.object
+             [ "workspaces" Aeson..=
+                 Aeson.object (fmap (uncurry (Aeson..=) . first Aeson.fromString) workspaces)
+             , "layout" Aeson..= layout
+             , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
+             , "extras" Aeson..= extras
+             ]
+
+    pure result
+
+
+statusBarConfig :: StatusBarConfig
+statusBarConfig = statusBarProp "xmobar-solomon"
+
+--------------------------------------------------------------------------------
 -- Main
 
 readFileMaybe :: FilePath -> IO (Maybe String)
@@ -520,20 +598,6 @@ restartEventHook = \case
     when (ev_message_type == atom) $ XMonad.restart "xmonad-solomon" True
     pure $ All True
   _ -> pure $ All True
-
-statusBarConfig :: StatusBarConfig
-statusBarConfig =
-  StatusBar.statusBarProp "xmobar-solomon" $
-    pure $
-      PP.def
-        { ppCurrent = (<> "=visible"),
-          ppLayout = id,
-          ppTitle = id,
-          ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
-          ppHiddenNoWindows = (<> "=empty"),
-          ppWsSep = ",",
-          ppSep = "|"
-        }
 
 myConfig =
   StatusBar.withSB statusBarConfig $

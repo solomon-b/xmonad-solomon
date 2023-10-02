@@ -14,7 +14,15 @@ build-type:          Simple
 
 common common-config
   build-depends:
+    aeson,
     base >= 4.12 && < 5,
+    containers,
+    mtl,
+    process>=1.4.3.0,
+    utf8-string,
+    X11>=1.8,
+    xmonad-contrib,
+    xmonad
 
   ghc-options:
     -Wall
@@ -36,25 +44,12 @@ executable xmonad-solomon
     common-config
   main-is:
     xmonad.hs
-  build-depends:
-    containers,
-    process>=1.4.3.0,
-    X11>=1.8,
-    xmonad-contrib,
-    xmonad
   hs-source-dirs:
     .
 
 library
   import:
     common-config
-  build-depends:     
-    containers,
-    process>=1.4.3.0,
-    X11>=1.8,
-    xmonad-contrib,
-    xmonad,
-    mtl
   exposed-modules:
     Prompt
   hs-source-dirs:
