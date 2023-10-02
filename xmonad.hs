@@ -62,10 +62,12 @@ import XMonad.StackSet qualified as W
 import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.EZConfig (mkKeymap)
 import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
-import qualified Data.ByteString.Lazy.UTF8 as UTF8
+import Data.ByteString.Lazy qualified as BS
+import Data.ByteString.UTF8 qualified as UTF8
 import Control.Arrow (Arrow((&&&)))
-import qualified Data.Aeson.Key as Aeson
+import Data.Aeson.Key qualified  as Aeson
 import Foreign.C (peekCString)
+import Control.Applicative
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -565,18 +567,21 @@ instance Aeson.ToJSON Workspace' where
   toJSON ws = Aeson.object
       [ "index" Aeson..= index ws
       , "state" Aeson..=  state ws
-      , "windows" Aeson..= windows ws
+      -- , "windows" Aeson..= windows ws
       ]
 
+strip :: String -> String
+strip = filter (liftA2 (&&) (> 31) (< 126) . fromEnum)
+
 getWindowTitle :: XMonad.Window -> XMonad.Display -> IO String
-getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (peekCString . XMonad.tp_value)
+getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (fmap strip . peekCString . XMonad.tp_value)
 
 getWorkspaceWindowTitles :: W.Workspace i l XMonad.Window -> XMonad.X [String]
 getWorkspaceWindowTitles w = do
   XMonad.withDisplay $ \d ->
-    XMonad.liftIO $ forM
-      (W.integrate' $ W.stack w)
+    XMonad.liftIO $ traverse
       (`getWindowTitle` d)
+      (W.integrate' $ W.stack w)
 
 logScreen :: WorkspaceState -> W.Workspace XMonad.WorkspaceId (XMonad.Layout XMonad.Window) XMonad.Window -> XMonad.X Workspace'
 logScreen st ws =
@@ -601,17 +606,17 @@ logToJSON = do
     let workspaces = Data.List.sortBy (\x y -> compare (index x) (index y)) $ current : visible <> hidden
 
     -- run extra loggers, ignoring any that generate errors.
-    extras <- mapM (XMonad.userCodeDef Nothing) $ ppExtras PP.def
+    extras <- traverse (XMonad.userCodeDef Nothing) $ ppExtras PP.def
 
     -- TODO: Sanitization failure:
     -- window title
     -- wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
 
-    let result = UTF8.toString $ Aeson.encode $
+    let result = UTF8.toString $ BS.toStrict $ Aeson.encode $
            Aeson.object
              [ "workspaces" Aeson..=
                  Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces)
-             , "layout" Aeson..= layout
+             , "layout" Aeson..= strip layout
              -- , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
              , "extras" Aeson..= extras
              ]

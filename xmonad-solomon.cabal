@@ -16,6 +16,7 @@ common common-config
   build-depends:
     aeson,
     base >= 4.12 && < 5,
+    bytestring,
     containers,
     mtl,
     process>=1.4.3.0,
