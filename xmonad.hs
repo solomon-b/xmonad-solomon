@@ -13,14 +13,14 @@
 --------------------------------------------------------------------------------
 
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
+import Control.Monad (when, forM)
 import Data.Aeson qualified as Aeson
 import Data.Char (toLower)
 import Data.Foldable (traverse_)
 import Data.Function (on)
 import Data.List (isInfixOf, sortBy)
 import Data.Map qualified as M
-import Data.Maybe (mapMaybe, catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Monoid (All (..))
 import GHC.IO (unsafeInterleaveIO)
 import System.Exit (exitSuccess)
@@ -38,7 +38,6 @@ import XMonad.Hooks.StatusBar qualified as StatusBar
 import XMonad.Hooks.StatusBar.PP (PP (..))
 import XMonad.Hooks.StatusBar.PP qualified as PP
 import XMonad.Hooks.TaffybarPagerHints (pagerHints)
-import XMonad.Hooks.UrgencyHook qualified as UrgencyHooks
 import XMonad.Layout.Decoration (ModifiedLayout)
 import XMonad.Layout.Gaps (Gaps, gaps)
 import XMonad.Layout.MultiToggle (Toggle (..), mkToggle, single)
@@ -63,12 +62,10 @@ import XMonad.StackSet qualified as W
 import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.EZConfig (mkKeymap)
 import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
-import qualified XMonad.Util.NamedWindows as NamedWindows
-import Data.Aeson.Key (toString)
 import qualified Data.ByteString.Lazy.UTF8 as UTF8
-import Control.Arrow (Arrow(first))
-import Data.Coerce (coerce)
+import Control.Arrow (Arrow((&&&)))
 import qualified Data.Aeson.Key as Aeson
+import Foreign.C (peekCString)
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -226,7 +223,7 @@ myTerminal = "termonad"
 
 myLauncher = XMonad.Prompt.Shell.shellPrompt promptConfig
 
-myWorkspaces = ["1:term", "2:web", "3:slack"] ++ map show [4 .. 9]
+myWorkspaces = map show [1 .. 9]
 
 myManageHook =
   XMonad.composeAll
@@ -533,18 +530,63 @@ statusBarPropTo :: String -- ^ Property to write the string to
 statusBarPropTo prop cmd = StatusBar.statusBarGeneric cmd $
     StatusBar.xmonadPropLog' prop =<< logToJSON
 
--- | 
---
 -- {
 --   "workspaces": {
---     "1": "visible",
---     "2": "current',
---     "3": "hidden",
---     "4": "hidden"
+--     "1": {"tag": "term", "state": "visible", "windows": []},
+--     "2": {"tag": "web", "state": "current", "windows": []},
+--     "3": {"tag": "slack", "state": "hidden", "windows": []},
+--     "4": {"tag": null, "state": "hidden", "windows": []}
+--     "5": {"tag": null, "state": "hidden", "windows": []}
+--     "6": {"tag": null, "state": "hidden", "windows": []}
+--     "7": {"tag": null, "state": "hidden", "windows": []}
+--     "8": {"tag": null, "state": "hidden", "windows": []}
+--     "9": {"tag": null, "state": "hidden", "windows": []}
 --   },
 --   "layout": "mirror",
 --   "title": "derp derp derp"
 --  }
+
+data WorkspaceState = Visible | Hidden | Current
+  deriving Show
+
+instance Aeson.ToJSON WorkspaceState where
+  toJSON = \case
+    Visible -> Aeson.String "visible"
+    Hidden -> Aeson.String "hidden"
+    Current -> Aeson.String "current"
+
+data Workspace' = Workspace'
+  { index :: Int
+  , state :: WorkspaceState
+  , windows :: [String]
+  }
+
+instance Aeson.ToJSON Workspace' where
+  toJSON ws = Aeson.object
+      [ "index" Aeson..= index ws
+      , "state" Aeson..=  state ws
+      , "windows" Aeson..= windows ws
+      ]
+
+getWindowTitle :: XMonad.Window -> XMonad.Display -> IO String
+getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (peekCString . XMonad.tp_value)
+
+getWorkspaceWindowTitles :: W.Workspace i l XMonad.Window -> XMonad.X [String]
+getWorkspaceWindowTitles w = do
+  XMonad.withDisplay $ \d ->
+    XMonad.liftIO $ forM
+      (W.integrate' $ W.stack w)
+      (`getWindowTitle` d)
+
+logScreen :: WorkspaceState -> W.Workspace XMonad.WorkspaceId (XMonad.Layout XMonad.Window) XMonad.Window -> XMonad.X Workspace'
+logScreen st ws =
+  getWorkspaceWindowTitles ws >>= \windowTitles ->
+  pure $ Workspace'
+    { index = read $ W.tag ws -- VERY SAFE
+    , state = st
+    , windows = windowTitles
+    }
+
 logToJSON :: XMonad.X String
 logToJSON = do
     winset <- XMonad.gets XMonad.windowset
@@ -553,21 +595,22 @@ logToJSON = do
     let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
 
     -- workspace list
-    let visible = (, "visible" :: String) . W.tag . W.workspace <$> W.visible winset
-    let current = (, "current") . W.tag . W.workspace $ W.current winset
-    let hidden = (, "hidden") . W.tag <$> W.hidden winset
-    let workspaces = Data.List.sortBy (\x y -> compare (fst x) (fst y)) $ current : visible <> hidden
+    visible <- traverse (logScreen Visible . W.workspace) (W.visible winset)
+    current <- logScreen Current . W.workspace $ W.current winset
+    hidden <- traverse (logScreen Hidden) (W.hidden winset)
+    let workspaces = Data.List.sortBy (\x y -> compare (index x) (index y)) $ current : visible <> hidden
 
     -- run extra loggers, ignoring any that generate errors.
     extras <- mapM (XMonad.userCodeDef Nothing) $ ppExtras PP.def
 
+    -- TODO: Sanitization failure:
     -- window title
     -- wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
 
     let result = UTF8.toString $ Aeson.encode $
            Aeson.object
              [ "workspaces" Aeson..=
-                 Aeson.object (fmap (uncurry (Aeson..=) . first Aeson.fromString) workspaces)
+                 Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces)
              , "layout" Aeson..= layout
              -- , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
              , "extras" Aeson..= extras
