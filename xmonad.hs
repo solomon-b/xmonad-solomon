@@ -5,6 +5,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
 
 -- TODO:
 -- - Setup dashboard view with widgets
@@ -68,6 +69,7 @@ import Control.Arrow (Arrow((&&&)))
 import Data.Aeson.Key qualified  as Aeson
 import Foreign.C (peekCString)
 import Control.Applicative
+import qualified XMonad.Util.NamedWindows as NamedWindows
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -225,7 +227,7 @@ myTerminal = "termonad"
 
 myLauncher = XMonad.Prompt.Shell.shellPrompt promptConfig
 
-myWorkspaces = map show [1 .. 9]
+myWorkspaces = map (show @Int) [1 .. 9]
 
 myManageHook =
   XMonad.composeAll
@@ -570,11 +572,8 @@ instance Aeson.ToJSON Workspace' where
       , "windows" Aeson..= windows ws
       ]
 
-strip :: String -> String
-strip = filter (liftA2 (&&) (> 31) (< 126) . fromEnum)
-
 getWindowTitle :: XMonad.Window -> XMonad.Display -> IO String
-getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (fmap strip . peekCString . XMonad.tp_value)
+getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (peekCString . XMonad.tp_value)
 
 getWorkspaceWindowTitles :: W.Workspace i l XMonad.Window -> XMonad.X [String]
 getWorkspaceWindowTitles w = do
@@ -594,35 +593,28 @@ logScreen st ws =
 
 logToJSON :: XMonad.X String
 logToJSON = do
-    winset <- XMonad.gets XMonad.windowset
-
-    -- layout description
-    -- let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
-
     -- workspace list
+    winset <- XMonad.gets XMonad.windowset
     visible <- traverse (logScreen Visible . W.workspace) (W.visible winset)
     current <- logScreen Current . W.workspace $ W.current winset
     hidden <- traverse (logScreen Hidden) (W.hidden winset)
     let workspaces = Data.List.sortBy (\x y -> compare (index x) (index y)) $ current : visible <> hidden
 
-    -- run extra loggers, ignoring any that generate errors.
-    extras <- traverse (XMonad.userCodeDef Nothing) $ ppExtras PP.def
+    -- layout description
+    let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
 
-    -- TODO: Sanitization failure:
     -- window title
-    -- wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
+    wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
 
     let result = UTF8.toString $ BS.toStrict $ Aeson.encode $
            Aeson.object
              [ "workspaces" Aeson..=
                  Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces)
-             -- , "layout" Aeson..= strip layout
-             -- , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
-             , "extras" Aeson..= extras
+             , "layout" Aeson..= layout
+             , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
              ]
 
     pure result
-
 
 statusBarConfig :: StatusBarConfig
 statusBarConfig = statusBarProp "xmobar-solomon"
