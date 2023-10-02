@@ -597,7 +597,7 @@ logToJSON = do
     winset <- XMonad.gets XMonad.windowset
 
     -- layout description
-    let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
+    -- let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
 
     -- workspace list
     visible <- traverse (logScreen Visible . W.workspace) (W.visible winset)
@@ -616,7 +616,7 @@ logToJSON = do
            Aeson.object
              [ "workspaces" Aeson..=
                  Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces)
-             , "layout" Aeson..= strip layout
+             -- , "layout" Aeson..= strip layout
              -- , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
              , "extras" Aeson..= extras
              ]
