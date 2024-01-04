@@ -223,7 +223,7 @@ flex =
 
 myBrowser = "/usr/bin/firefox"
 
-myTerminal = "kitty"
+myTerminal = "st"
 
 myLauncher = XMonad.Prompt.Shell.shellPrompt promptConfig
 
