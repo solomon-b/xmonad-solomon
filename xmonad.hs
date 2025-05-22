@@ -1,17 +1,3 @@
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -Wno-missing-signatures #-}
-
--- TODO:
--- - Setup dashboard view with widgets
--- - Cleanup imports
-
---------------------------------------------------------------------------------
-
 import Control.Arrow (Arrow ((&&&)))
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
@@ -63,7 +49,6 @@ import XMonad.Prompt.Shell (shellPrompt)
 import XMonad.Prompt.XMonad (xmonadPromptCT)
 import XMonad.StackSet qualified as W
 import XMonad.Util.EZConfig (mkKeymap)
-import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
 import XMonad.Util.NamedWindows qualified as NamedWindows
 
@@ -75,12 +60,6 @@ background = "#2d2d2d"
 
 altBackground :: String
 altBackground = "#333333"
-
-currentLine :: String
-currentLine = "#393939"
-
-selection :: String
-selection = "#515151"
 
 foreground :: String
 foreground = "#cccccc"
@@ -94,35 +73,8 @@ red = "#f2777a"
 orange :: String
 orange = "#f99157"
 
-yellow :: String
-yellow = "#ffcc66"
-
-green :: String
-green = "#99cc99"
-
-aqua :: String
-aqua = "#66cccc"
-
 blue :: String
 blue = "#6699cc"
-
-purple :: String
-purple = "#cc99cc"
-
-active :: String
-active = red
-
-activeWarn :: String
-activeWarn = blue
-
-inactive :: String
-inactive = orange
-
-focusColor :: String
-focusColor = red
-
-unfocusColor :: String
-unfocusColor = orange
 
 myFont :: String
 myFont = "xft:Meslo LG M:style=Regular:size=10"
@@ -151,17 +103,8 @@ myTabTheme =
 gap :: Int
 gap = 4
 
-topbar :: Integer
-topbar = 10
-
 myBorder :: XMonad.Dimension
 myBorder = 1
-
-prompt :: Integer
-prompt = 20
-
-status :: Integer
-status = 20
 
 mySpacing :: l a -> ModifiedLayout Spacing l a
 mySpacing = spacing gap
@@ -174,9 +117,6 @@ trimNamed w n = renamed [CutWordsLeft w, PrependWords n]
 
 suffixed :: String -> l a -> ModifiedLayout Rename l a
 suffixed n = renamed [AppendWords n]
-
-trimSuffixed :: Int -> String -> l a -> ModifiedLayout Rename l a
-trimSuffixed w n = renamed [CutWordsRight w, AppendWords n]
 
 data TABBED = TABBED
   deriving (Show, Read, Eq, XMonad.Typeable)
@@ -191,7 +131,7 @@ data FocusedOnly = FocusedOnly
 
 instance SetsAmbiguous FocusedOnly where
   hiddens :: FocusedOnly -> XMonad.WindowSet -> XMonad.Rectangle -> Maybe (W.Stack XMonad.Window) -> [(XMonad.Window, XMonad.Rectangle)] -> [XMonad.Window]
-  hiddens _ wset lr mst wrs =
+  hiddens _ wset _lr _mst wrs =
     case W.peek wset of
       Nothing -> fmap fst wrs
       Just focused -> filter (/= focused) $ fmap fst wrs
@@ -208,7 +148,6 @@ flex =
     . windowNavigation
     . addTabs shrinkText myTabTheme
     . subLayout [] Simplest
-    --  $ standardLayouts
     $ ifWider 1920 wideLayouts standardLayout
   where
     wideThreeCol = suffixed "Wide 3Col" (ThreeColMid 1 (1 / 20) (1 / 2))
@@ -308,8 +247,8 @@ hGetLines handle = unsafeInterleaveIO $ do
     then pure []
     else do
       line <- hGetLine handle
-      lines <- hGetLines handle
-      pure $ line : lines
+      lines' <- hGetLines handle
+      pure $ line : lines'
 
 data SystemUnit = SystemUnit
   { _unit :: String,
@@ -319,10 +258,6 @@ data SystemUnit = SystemUnit
     _description :: String
   }
   deriving (Show)
-
-mkSystemUnit :: [String] -> Maybe SystemUnit
-mkSystemUnit [a, b, c, d, e] = Just $ SystemUnit a b c d e
-mkSystemUnit _ = Nothing
 
 -- | Fetch systemd user units.
 --
@@ -374,30 +309,11 @@ scratchpads =
   ]
 
 --------------------------------------------------------------------------------
--- Dashboard State
-
-data DashboardState = On | Off
-  deriving (Eq)
-
-instance XMonad.ExtensionClass DashboardState where
-  initialValue = Off
-
-toggleDashboard :: XMonad.X ()
-toggleDashboard = do
-  XS.get >>= \case
-    On -> do
-      XMonad.spawn "/home/solomon/.config/eww/close_dashboard"
-      XS.put Off
-    Off -> do
-      XMonad.spawn "/home/solomon/.config/eww/open_dashboard"
-      XS.put On
-
---------------------------------------------------------------------------------
 -- Keybindings
 
 workSpaceNav :: XMonad.XConfig a -> [(String, XMonad.X ())]
 workSpaceNav c = do
-  (i, j) <- zip (map show [1 .. 9]) $ XMonad.workspaces c
+  (i, j) <- zip (map (show @Int) [1 .. 9]) $ XMonad.workspaces c
   (m, f) <- [("M-", W.greedyView), ("M-S-", W.shift)]
   return (m ++ i, XMonad.windows $ f j)
 
@@ -418,7 +334,6 @@ myKeys c =
       ("M-<Space> p", scratchpadPrompt),
       ("M-<Backspace>", closeWindowPrompt),
       ("M-S-<Backspace>", XMonad.withUnfocused XMonad.killWindow),
-      ("<XF86AudioMedia>", toggleDashboard),
       ("<XF86AudioMute>", toggleMute),
       ("<XF86AudioRaiseVolume>", volumeUp),
       ("<XF86AudioLowerVolume>", volumeDown),

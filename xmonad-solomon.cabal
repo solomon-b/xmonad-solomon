@@ -12,9 +12,19 @@ build-type:          Simple
 
 --------------------------------------------------------------------------------
 
-common common-config
+executable xmonad-solomon
+  main-is:
+    xmonad.hs
+  hs-source-dirs:
+    .
   default-extensions:
-    ImportQualifiedPost
+    ImportQualifiedPost,
+    InstanceSigs,
+    LambdaCase,
+    NamedFieldPuns,
+    OverloadedStrings,
+    OverloadedStrings,
+    TypeApplications
 
   build-depends:
     aeson,
@@ -37,24 +47,7 @@ common common-config
     -Wpartial-fields
     -Werror=missing-home-modules
     -Wno-star-is-type
+    -Wno-missing-signatures
 
   default-language:
     Haskell2010
-
---------------------------------------------------------------------------------
-
-executable xmonad-solomon
-  import:
-    common-config
-  main-is:
-    xmonad.hs
-  hs-source-dirs:
-    .
-
-library
-  import:
-    common-config
-  exposed-modules:
-    Prompt
-  hs-source-dirs:
-    src
