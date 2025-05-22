@@ -1,10 +1,9 @@
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
 
 -- TODO:
@@ -13,16 +12,20 @@
 
 --------------------------------------------------------------------------------
 
+import Control.Arrow (Arrow ((&&&)))
 import Control.Exception (SomeException, try)
-import Control.Monad (when, forM)
+import Control.Monad (when)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Aeson
+import Data.ByteString.Lazy qualified as BS
+import Data.ByteString.UTF8 qualified as UTF8
 import Data.Char (toLower)
 import Data.Foldable (traverse_)
 import Data.Function (on)
 import Data.List (isInfixOf, sortBy)
 import Data.Map qualified as M
-import Data.Maybe (mapMaybe)
 import Data.Monoid (All (..))
+import Foreign.C (peekCString)
 import GHC.IO (unsafeInterleaveIO)
 import System.Exit (exitSuccess)
 import System.IO (Handle, hGetLine, hIsEOF)
@@ -43,10 +46,9 @@ import XMonad.Layout.Decoration (ModifiedLayout)
 import XMonad.Layout.Gaps (Gaps, gaps)
 import XMonad.Layout.MultiToggle (Toggle (..), mkToggle, single)
 import XMonad.Layout.MultiToggle.Instances (StdTransformers (..))
-import XMonad.Layout.Named (named)
 import XMonad.Layout.NoBorders (SetsAmbiguous (..), noBorders)
 import XMonad.Layout.PerScreen (ifWider)
-import XMonad.Layout.Renamed (Rename (..), renamed)
+import XMonad.Layout.Renamed (Rename (..), named, renamed)
 import XMonad.Layout.ResizableTile (ResizableTall (..))
 import XMonad.Layout.SimpleFloat (shrinkText)
 import XMonad.Layout.Simplest (Simplest (..))
@@ -60,16 +62,10 @@ import XMonad.Prompt.ConfirmPrompt (confirmPrompt)
 import XMonad.Prompt.Shell (shellPrompt)
 import XMonad.Prompt.XMonad (xmonadPromptCT)
 import XMonad.StackSet qualified as W
-import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.EZConfig (mkKeymap)
+import XMonad.Util.ExtensibleState qualified as XS
 import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
-import Data.ByteString.Lazy qualified as BS
-import Data.ByteString.UTF8 qualified as UTF8
-import Control.Arrow (Arrow((&&&)))
-import Data.Aeson.Key qualified  as Aeson
-import Foreign.C (peekCString)
-import Control.Applicative
-import qualified XMonad.Util.NamedWindows as NamedWindows
+import XMonad.Util.NamedWindows qualified as NamedWindows
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -185,7 +181,7 @@ trimSuffixed w n = renamed [CutWordsRight w, AppendWords n]
 data TABBED = TABBED
   deriving (Show, Read, Eq, XMonad.Typeable)
 
---instance Transformer MIRROR Window where
+-- instance Transformer MIRROR Window where
 --    transform _ x k = k (Mirror x) (\(Mirror x') -> x')
 
 myLayoutHook = avoidStruts $ mirrorToggle $ fullScreenToggle $ flex XMonad.||| tabs
@@ -300,8 +296,8 @@ scratchpadPrompt :: XMonad.X ()
 scratchpadPrompt = xmonadPromptCT "Scratchpads" commands promptConfig
   where
     commands =
-      [ ("1: Personal Calendar", namedScratchpadAction scratchpads "personalCal")
-      , ("2: Hasura Calendar", namedScratchpadAction scratchpads "hasuraCal")
+      [ ("1: Personal Calendar", namedScratchpadAction scratchpads "personalCal"),
+        ("2: Hasura Calendar", namedScratchpadAction scratchpads "hasuraCal")
       ]
 
 -- | Given a 'Handle', return a list of all lines in that 'Handle'
@@ -331,18 +327,17 @@ mkSystemUnit _ = Nothing
 -- | Fetch systemd user units.
 --
 -- TODO:
-fetchUnits :: IO [SystemUnit]
-fetchUnits = do
-  let p = proc "systemctl" ["--user"]
-  (_, hout, _, _) <- createProcess p {std_out = CreatePipe}
-  case hout of
-    Just hout' -> do
-      res <- words <$> hGetLine hout'
-      res1 <- mapMaybe (mkSystemUnit . words) <$> hGetLines hout'
-      print res
-      pure res1
-    _ -> pure []
-
+-- fetchUnits :: IO [SystemUnit]
+-- fetchUnits = do
+--   let p = proc "systemctl" ["--user"]
+--   (_, hout, _, _) <- createProcess p {std_out = CreatePipe}
+--   case hout of
+--     Just hout' -> do
+--       res <- words <$> hGetLine hout'
+--       res1 <- mapMaybe (mkSystemUnit . words) <$> hGetLines hout'
+--       print res
+--       pure res1
+--     _ -> pure []
 readEmojis :: IO [String]
 readEmojis = do
   let p = proc "cat" ["/home/solomon/.local/share/emoji"]
@@ -382,11 +377,10 @@ scratchpads =
 -- Dashboard State
 
 data DashboardState = On | Off
-  deriving Eq
+  deriving (Eq)
 
 instance XMonad.ExtensionClass DashboardState where
   initialValue = Off
-
 
 toggleDashboard :: XMonad.X ()
 toggleDashboard = do
@@ -411,11 +405,11 @@ myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ()
 myKeys c =
   mkKeymap c $
     -- System
-    
+
     -- System
-    
+
     -- System
-    
+
     -- System
     [ ("M-<Space> q", exitPrompt),
       ("M-<Space> w", layoutPrompt),
@@ -519,19 +513,25 @@ myMouseBindings XMonad.XConfig {XMonad.modMask = modm} =
     ]
 
 --------------------------------------------------------------------------------
--- Status Bar 
+-- Status Bar
 
 -- | Creates a 'StatusBarConfig' that uses property logging to @_XMONAD_LOG@, which
 -- is set in 'xmonadDefProp'
-statusBarProp :: String -- ^ The command line to launch the status bar
-              -> StatusBarConfig
+statusBarProp ::
+  -- | The command line to launch the status bar
+  String ->
+  StatusBarConfig
 statusBarProp = statusBarPropTo StatusBar.xmonadDefProp
 
 -- | Like 'statusBarProp', but lets you define the property
-statusBarPropTo :: String -- ^ Property to write the string to
-                -> String -- ^ The command line to launch the status bar
-                -> StatusBarConfig
-statusBarPropTo prop cmd = StatusBar.statusBarGeneric cmd $
+statusBarPropTo ::
+  -- | Property to write the string to
+  String ->
+  -- | The command line to launch the status bar
+  String ->
+  StatusBarConfig
+statusBarPropTo prop cmd =
+  StatusBar.statusBarGeneric cmd $
     StatusBar.xmonadPropLog' prop =<< logToJSON
 
 -- {
@@ -551,7 +551,7 @@ statusBarPropTo prop cmd = StatusBar.statusBarGeneric cmd $
 --  }
 
 data WorkspaceState = Visible | Hidden | Current
-  deriving Show
+  deriving (Show)
 
 instance Aeson.ToJSON WorkspaceState where
   toJSON = \case
@@ -560,16 +560,17 @@ instance Aeson.ToJSON WorkspaceState where
     Current -> Aeson.String "current"
 
 data Workspace' = Workspace'
-  { index :: Int
-  , state :: WorkspaceState
-  , windows :: [String]
+  { index :: Int,
+    state :: WorkspaceState,
+    windows :: [String]
   }
 
 instance Aeson.ToJSON Workspace' where
-  toJSON ws = Aeson.object
-      [ "index" Aeson..= index ws
-      , "state" Aeson..=  state ws
-      , "windows" Aeson..= windows ws
+  toJSON ws =
+    Aeson.object
+      [ "index" Aeson..= index ws,
+        "state" Aeson..= state ws,
+        "windows" Aeson..= windows ws
       ]
 
 getWindowTitle :: XMonad.Window -> XMonad.Display -> IO String
@@ -578,43 +579,48 @@ getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (peekCString 
 getWorkspaceWindowTitles :: W.Workspace i l XMonad.Window -> XMonad.X [String]
 getWorkspaceWindowTitles w = do
   XMonad.withDisplay $ \d ->
-    XMonad.liftIO $ traverse
-      (`getWindowTitle` d)
-      (W.integrate' $ W.stack w)
+    XMonad.liftIO $
+      traverse
+        (`getWindowTitle` d)
+        (W.integrate' $ W.stack w)
 
 logScreen :: WorkspaceState -> W.Workspace XMonad.WorkspaceId (XMonad.Layout XMonad.Window) XMonad.Window -> XMonad.X Workspace'
 logScreen st ws =
   getWorkspaceWindowTitles ws >>= \windowTitles ->
-  pure $ Workspace'
-    { index = read $ W.tag ws -- VERY SAFE
-    , state = st
-    , windows = windowTitles
-    }
+    pure $
+      Workspace'
+        { index = read $ W.tag ws, -- VERY SAFE
+          state = st,
+          windows = windowTitles
+        }
 
 logToJSON :: XMonad.X String
 logToJSON = do
-    -- workspace list
-    winset <- XMonad.gets XMonad.windowset
-    visible <- traverse (logScreen Visible . W.workspace) (W.visible winset)
-    current <- logScreen Current . W.workspace $ W.current winset
-    hidden <- traverse (logScreen Hidden) (W.hidden winset)
-    let workspaces = Data.List.sortBy (\x y -> compare (index x) (index y)) $ current : visible <> hidden
+  -- workspace list
+  winset <- XMonad.gets XMonad.windowset
+  visible <- traverse (logScreen Visible . W.workspace) (W.visible winset)
+  current <- logScreen Current . W.workspace $ W.current winset
+  hidden <- traverse (logScreen Hidden) (W.hidden winset)
+  let workspaces = Data.List.sortBy (\x y -> compare (index x) (index y)) $ current : visible <> hidden
 
-    -- layout description
-    let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
+  -- layout description
+  let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
 
-    -- window title
-    wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
+  -- window title
+  wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
 
-    let result = UTF8.toString $ BS.toStrict $ Aeson.encode $
-           Aeson.object
-             [ "workspaces" Aeson..=
-                 Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces)
-             , "layout" Aeson..= layout
-             , "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
-             ]
+  let result =
+        UTF8.toString $
+          BS.toStrict $
+            Aeson.encode $
+              Aeson.object
+                [ "workspaces"
+                    Aeson..= Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces),
+                  "layout" Aeson..= layout,
+                  "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
+                ]
 
-    pure result
+  pure result
 
 statusBarConfig :: StatusBarConfig
 statusBarConfig = statusBarProp "xmobar-solomon"
@@ -629,7 +635,7 @@ readFileMaybe path =
 myStartupHook :: XMonad.X ()
 myStartupHook = do
   commands <- XMonad.liftIO $ readFileMaybe "/home/solomon/.config/startup.sh"
-  traverse_ (traverse_ XMonad.spawn) $ fmap lines commands
+  traverse_ (traverse_ XMonad.spawn . lines) commands
 
 restartEventHook :: XMonad.Event -> XMonad.X All
 restartEventHook = \case

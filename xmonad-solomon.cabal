@@ -1,8 +1,8 @@
-cabal-version:       2.4
+cabal-version:       3.0
 name:                xmonad-solomon
 version:             0.1.0.0
 synopsis:            Solomon's xmonad configuration.
-homepage:            https://github.com/ssbothwel/nixos-config
+homepage:            https://github.com/solomon-b/xmonad-solomon
 license:             GPL-3.0-only
 license-file:        LICENSE
 author:              Solomon Bothwell
@@ -13,6 +13,9 @@ build-type:          Simple
 --------------------------------------------------------------------------------
 
 common common-config
+  default-extensions:
+    ImportQualifiedPost
+
   build-depends:
     aeson,
     base >= 4.12 && < 5,
