@@ -6,3 +6,4 @@
 /hie.yaml
 /.direnv/
 *.local
+/.projectile-cache.eld

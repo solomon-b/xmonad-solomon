@@ -1,28 +1,28 @@
+module Main where
+
 import Control.Arrow (Arrow ((&&&)))
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Aeson
 import Data.ByteString.Lazy qualified as BS
 import Data.ByteString.UTF8 qualified as UTF8
-import Data.Char (toLower)
+import Data.Char (toLower, isSpace)
 import Data.Foldable (traverse_)
 import Data.Function (on)
 import Data.List (isInfixOf, sortBy)
 import Data.Map qualified as M
 import Data.Monoid (All (..))
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 import Foreign.C (peekCString)
-import GHC.IO (unsafeInterleaveIO)
 import System.Exit (exitSuccess)
-import System.IO (Handle, hGetLine, hIsEOF)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc)
 import XMonad qualified
-import XMonad.Actions.CopyWindow (copyToAll, kill1, killAllOtherCopies)
+import XMonad.Actions.CopyWindow (kill1)
 import XMonad.Actions.Navigation2D (Navigation2DConfig (..), centerNavigation, lineNavigation, singleWindowRect, windowGo, windowSwap, withNavigation2DConfig)
-import XMonad.Actions.Promote (promote)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks, manageDocks)
-import XMonad.Hooks.ManageHelpers ((~?))
 import XMonad.Hooks.StatusBar (StatusBarConfig)
 import XMonad.Hooks.StatusBar qualified as StatusBar
 import XMonad.Hooks.StatusBar.PP (PP (..))
@@ -49,7 +49,6 @@ import XMonad.Prompt.Shell (shellPrompt)
 import XMonad.Prompt.XMonad (xmonadPromptCT)
 import XMonad.StackSet qualified as W
 import XMonad.Util.EZConfig (mkKeymap)
-import XMonad.Util.NamedScratchpad (NamedScratchpad (..), customFloating, namedScratchpadAction)
 import XMonad.Util.NamedWindows qualified as NamedWindows
 
 --------------------------------------------------------------------------------
@@ -121,9 +120,6 @@ suffixed n = renamed [AppendWords n]
 data TABBED = TABBED
   deriving (Show, Read, Eq, XMonad.Typeable)
 
--- instance Transformer MIRROR Window where
---    transform _ x k = k (Mirror x) (\(Mirror x') -> x')
-
 myLayoutHook = avoidStruts $ mirrorToggle $ fullScreenToggle $ flex XMonad.||| tabs
 
 data FocusedOnly = FocusedOnly
@@ -154,9 +150,7 @@ flex =
     wideLayouts = mySpacing . myGaps $ wideThreeCol XMonad.||| standardLayout
     standardLayout =
       mySpacing . myGaps . named "Std 2/3" $
-        ResizableTall 1 (1 / 20) (2 / 3) [] --  ||| Mirror (ResizableTall 1 (1/20) (2/3) [])
-
-myBrowser = "/usr/bin/firefox"
+        ResizableTall 1 (1 / 20) (2 / 3) []
 
 myTerminal = "st"
 
@@ -226,87 +220,22 @@ layoutPrompt = xmonadPromptCT "Window Commands" commands promptConfig
   where
     commands =
       [ ("1: Tabbed Layout", XMonad.sendMessage (XMonad.JumpToLayout "Tabs")),
-        ("2: Two Column Layout", XMonad.sendMessage (XMonad.JumpToLayout "Flex")),
-        ("3: Float/Unfloat window", floatFocused)
+        ("2: Two Column Layout", XMonad.sendMessage (XMonad.JumpToLayout "Flex"))
       ]
-
--- | Simple prompt for launching scratchpads
-scratchpadPrompt :: XMonad.X ()
-scratchpadPrompt = xmonadPromptCT "Scratchpads" commands promptConfig
-  where
-    commands =
-      [ ("1: Personal Calendar", namedScratchpadAction scratchpads "personalCal"),
-        ("2: Hasura Calendar", namedScratchpadAction scratchpads "hasuraCal")
-      ]
-
--- | Given a 'Handle', return a list of all lines in that 'Handle'
-hGetLines :: Handle -> IO [String]
-hGetLines handle = unsafeInterleaveIO $ do
-  isEof <- hIsEOF handle
-  if isEof
-    then pure []
-    else do
-      line <- hGetLine handle
-      lines' <- hGetLines handle
-      pure $ line : lines'
-
-data SystemUnit = SystemUnit
-  { _unit :: String,
-    _load :: String,
-    _active :: String,
-    _sub :: String,
-    _description :: String
-  }
-  deriving (Show)
-
--- | Fetch systemd user units.
---
--- TODO:
--- fetchUnits :: IO [SystemUnit]
--- fetchUnits = do
---   let p = proc "systemctl" ["--user"]
---   (_, hout, _, _) <- createProcess p {std_out = CreatePipe}
---   case hout of
---     Just hout' -> do
---       res <- words <$> hGetLine hout'
---       res1 <- mapMaybe (mkSystemUnit . words) <$> hGetLines hout'
---       print res
---       pure res1
---     _ -> pure []
-readEmojis :: IO [String]
-readEmojis = do
-  let p = proc "cat" ["/home/solomon/.local/share/emoji"]
-  (_, hout, _, _) <- createProcess p {std_out = CreatePipe}
-  case hout of
-    Just hout' -> hGetLines hout'
-    _ -> pure []
 
 emojiPrompt :: XMonad.X ()
 emojiPrompt = do
+  emojis <- liftIO $ Text.lines <$> Text.IO.readFile "/home/solomon/.local/share/emoji"
   let action e = XMonad.spawn $ "echo " <> e <> " | xclip -sel clip"
-  emojis <- fmap (\e -> (e, action e)) <$> XMonad.liftIO readEmojis
-  xmonadPromptCT "Emojis" emojis promptConfig
+      promptData = fmap (\e -> (Text.unpack e, action $ Text.unpack $ Text.takeWhile (not . isSpace) e)) emojis
+  xmonadPromptCT "Emojis" promptData promptConfig
 
---------------------------------------------------------------------------------
--- Scratchpads
-
--- | TODO: look into other useful scratchpads.
--- https://github.com/thcipriani/dotfiles/blob/master/xmonad/xmonad.hs#L99-L101
-scratchpads :: [NamedScratchpad]
-scratchpads =
-  [ NS
-      "personalCal"
-      "surf 'calendar.google.com/?authuser=ssbothwell@gmail.com'"
-      -- TODO: Figure out why `title` isn't working as expected here
-      (XMonad.className XMonad.=? "Surf") -- <&&> title ~? "Google Calendar")
-      (customFloating $ W.RationalRect 0.9 0.9 0.9 0.9),
-    NS
-      "hasuraCal"
-      -- https://calendar.google.com/calendar/u/1?cid=c29sb21vbkBoYXN1cmEuaW8
-      "surf 'calendar.google.com/?authuser=solomon@hasura.io'"
-      ((XMonad.className ~? "Surf") XMonad.<&&> XMonad.title ~? "Hasura")
-      (customFloating $ W.RationalRect 0.9 0.9 0.9 0.9)
-  ]
+bookmarkPrompt :: XMonad.X ()
+bookmarkPrompt = do
+  bookmarks <- liftIO $ Text.lines <$> Text.IO.readFile "/home/solomon/.local/share/bookmarks"
+  let action e = XMonad.spawn $ "xdg-open " <> e
+      promptData = fmap (\e -> (Text.unpack e, action $ Text.unpack e)) bookmarks
+  xmonadPromptCT "Bookmarks" promptData promptConfig
 
 --------------------------------------------------------------------------------
 -- Keybindings
@@ -321,17 +250,9 @@ myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ()
 myKeys c =
   mkKeymap c $
     -- System
-
-    -- System
-
-    -- System
-
-    -- System
     [ ("M-<Space> q", exitPrompt),
       ("M-<Space> w", layoutPrompt),
-      ("M-<Space> <Space>", myLauncher),
       ("M-<Space> e", emojiPrompt),
-      ("M-<Space> p", scratchpadPrompt),
       ("M-<Backspace>", closeWindowPrompt),
       ("M-S-<Backspace>", XMonad.withUnfocused XMonad.killWindow),
       ("<XF86AudioMute>", toggleMute),
@@ -365,25 +286,20 @@ myKeys c =
         ("M-[", XMonad.sendMessage XMonad.Shrink),
         ("M-]", XMonad.sendMessage XMonad.Expand),
         ("M-r", XMonad.sendMessage $ Toggle MIRROR),
-        -- Float/Sink floated window
-        ("M-t", floatFocused),
-        ("M-C-t", XMonad.withFocused toggleSticky),
         -- Full Screen a window
         ("M-<F11>", XMonad.sendMessage $ Toggle FULL),
-        -- Promote window to master
-        ("M-b", promote),
         -- "merge with sublayout"
         ("M-C-h", XMonad.sendMessage . pullGroup $ L),
         ("M-C-l", XMonad.sendMessage . pullGroup $ R),
         ("M-C-j", XMonad.sendMessage . pullGroup $ D),
         ("M-C-k", XMonad.sendMessage . pullGroup $ U),
-        -- Unmerge a window
+        -- Unmerge a tab
         ("M-g", XMonad.withFocused (XMonad.sendMessage . UnMerge))
       ]
       <> workSpaceNav c
-      <> [ ("M-<Return>", XMonad.spawn myTerminal), -- Launch Terminal
-           ("M-\\", XMonad.spawn myBrowser), -- Launch Browser
-           ("M-p", myLauncher) -- Launch DMenu
+      <> [ ("M-<Return>", XMonad.spawn myTerminal),
+           ("M-p", myLauncher),
+           ("M-t", bookmarkPrompt)
          ]
   where
     toggleDunst = XMonad.spawn "dunstctl set-paused toggle"
@@ -392,23 +308,6 @@ myKeys c =
     dunstCloseAll = XMonad.spawn "dunstctl close-all"
     volumeUp = XMonad.spawn "pactl set-sink-volume @DEFAULT_SINK@ +5%"
     volumeDown = XMonad.spawn "pactl set-sink-volume @DEFAULT_SINK@ -5%"
-
-toggleSticky :: XMonad.Window -> XMonad.X ()
-toggleSticky w = XMonad.windows $ \s ->
-  if M.member w (W.floating s)
-    then copyToAll s
-    else s
-
-toggleFloat :: XMonad.Window -> XMonad.X ()
-toggleFloat w = XMonad.windows $ \s ->
-  if M.member w (W.floating s)
-    then W.sink w s
-    else W.float w (W.RationalRect (1 / 6) (1 / 6) (2 / 3) (2 / 3)) s
-
-floatFocused :: XMonad.X ()
-floatFocused = do
-  XMonad.withFocused toggleFloat
-  killAllOtherCopies
 
 myNav2DConf :: Navigation2DConfig
 myNav2DConf =
@@ -419,13 +318,6 @@ myNav2DConf =
       layoutNavigation = pure ("Full", centerNavigation),
       unmappedWindowRect = pure ("Full", singleWindowRect)
     }
-
-myMouseBindings :: XMonad.XConfig l -> M.Map (XMonad.KeyMask, XMonad.Button) (XMonad.Window -> XMonad.X ())
-myMouseBindings XMonad.XConfig {XMonad.modMask = modm} =
-  M.fromList
-    [ ((modm, XMonad.button1), \w -> XMonad.focus w >> XMonad.mouseMoveWindow w >> XMonad.windows W.shiftMaster), -- Set window to float and move by dragging
-      ((modm XMonad..|. XMonad.controlMask, XMonad.button1), \w -> XMonad.focus w >> XMonad.mouseResizeWindow w >> XMonad.windows W.shiftMaster) -- Set window to float and resize by dragging
-    ]
 
 --------------------------------------------------------------------------------
 -- Status Bar
@@ -448,22 +340,6 @@ statusBarPropTo ::
 statusBarPropTo prop cmd =
   StatusBar.statusBarGeneric cmd $
     StatusBar.xmonadPropLog' prop =<< logToJSON
-
--- {
---   "workspaces": {
---     "1": {"tag": "term", "state": "visible", "windows": []},
---     "2": {"tag": "web", "state": "current", "windows": []},
---     "3": {"tag": "slack", "state": "hidden", "windows": []},
---     "4": {"tag": null, "state": "hidden", "windows": []}
---     "5": {"tag": null, "state": "hidden", "windows": []}
---     "6": {"tag": null, "state": "hidden", "windows": []}
---     "7": {"tag": null, "state": "hidden", "windows": []}
---     "8": {"tag": null, "state": "hidden", "windows": []}
---     "9": {"tag": null, "state": "hidden", "windows": []}
---   },
---   "layout": "mirror",
---   "title": "derp derp derp"
---  }
 
 data WorkspaceState = Visible | Hidden | Current
   deriving (Show)
@@ -552,23 +428,13 @@ myStartupHook = do
   commands <- XMonad.liftIO $ readFileMaybe "/home/solomon/.config/startup.sh"
   traverse_ (traverse_ XMonad.spawn . lines) commands
 
-restartEventHook :: XMonad.Event -> XMonad.X All
-restartEventHook = \case
-  XMonad.ClientMessageEvent {XMonad.ev_message_type} -> do
-    atom <- XMonad.getAtom "XMONAD_RESTART"
-    when (ev_message_type == atom) $ XMonad.restart "xmonad-solomon" True
-    pure $ All True
-  _ -> pure $ All True
-
 myConfig =
   StatusBar.withSB statusBarConfig $
     XMonad.def
       { XMonad.layoutHook = myLayoutHook,
         XMonad.manageHook = myManageHook <> XMonad.manageHook XMonad.def,
-        XMonad.handleEventHook = restartEventHook,
         XMonad.modMask = XMonad.mod4Mask,
         XMonad.keys = myKeys,
-        XMonad.mouseBindings = myMouseBindings,
         XMonad.workspaces = myWorkspaces,
         XMonad.normalBorderColor = myNormalBorderColor,
         XMonad.focusedBorderColor = myFocusedBorderColor,
@@ -578,4 +444,4 @@ myConfig =
 
 main :: IO ()
 main =
-  XMonad.xmonad . ewmhFullscreen . ewmh . pagerHints . docks . withNavigation2DConfig myNav2DConf $ myConfig
+  XMonad.xmonad . ewmhFullscreen . ewmh . pagerHints . docks $ withNavigation2DConfig myNav2DConf myConfig
