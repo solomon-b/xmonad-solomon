@@ -33,6 +33,7 @@ executable xmonad-solomon
     containers,
     mtl,
     process>=1.4.3.0,
+    text,
     utf8-string,
     X11>=1.8,
     xmonad-contrib,
