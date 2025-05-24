@@ -1,22 +1,16 @@
 module Main where
 
-import Control.Arrow (Arrow ((&&&)))
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson qualified as Aeson
-import Data.Aeson.Key qualified as Aeson
-import Data.ByteString.Lazy qualified as BS
-import Data.ByteString.UTF8 qualified as UTF8
 import Data.Char (toLower, isSpace)
 import Data.Foldable (traverse_)
 import Data.Function (on)
-import Data.List (isInfixOf, sortBy)
+import Data.List (isInfixOf)
 import Data.Map qualified as M
 import Data.Monoid (All (..))
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
-import Foreign.C (peekCString)
 import System.Exit (exitSuccess)
 import XMonad qualified
 import XMonad.Actions.CopyWindow (kill1)
@@ -49,7 +43,7 @@ import XMonad.Prompt.Shell (shellPrompt)
 import XMonad.Prompt.XMonad (xmonadPromptCT)
 import XMonad.StackSet qualified as W
 import XMonad.Util.EZConfig (mkKeymap)
-import XMonad.Util.NamedWindows qualified as NamedWindows
+import XMonad.Hooks.DynamicLog (xmobarProp)
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -100,6 +94,7 @@ myTabTheme =
 -- Layouts
 
 gap :: Int
+
 gap = 4
 
 myBorder :: XMonad.Dimension
@@ -322,99 +317,20 @@ myNav2DConf =
 --------------------------------------------------------------------------------
 -- Status Bar
 
--- | Creates a 'StatusBarConfig' that uses property logging to @_XMONAD_LOG@, which
--- is set in 'xmonadDefProp'
-statusBarProp ::
-  -- | The command line to launch the status bar
-  String ->
-  StatusBarConfig
-statusBarProp = statusBarPropTo StatusBar.xmonadDefProp
-
--- | Like 'statusBarProp', but lets you define the property
-statusBarPropTo ::
-  -- | Property to write the string to
-  String ->
-  -- | The command line to launch the status bar
-  String ->
-  StatusBarConfig
-statusBarPropTo prop cmd =
-  StatusBar.statusBarGeneric cmd $
-    StatusBar.xmonadPropLog' prop =<< logToJSON
-
-data WorkspaceState = Visible | Hidden | Current
-  deriving (Show)
-
-instance Aeson.ToJSON WorkspaceState where
-  toJSON = \case
-    Visible -> Aeson.String "visible"
-    Hidden -> Aeson.String "hidden"
-    Current -> Aeson.String "current"
-
-data Workspace' = Workspace'
-  { index :: Int,
-    state :: WorkspaceState,
-    windows :: [String]
-  }
-
-instance Aeson.ToJSON Workspace' where
-  toJSON ws =
-    Aeson.object
-      [ "index" Aeson..= index ws,
-        "state" Aeson..= state ws,
-        "windows" Aeson..= windows ws
-      ]
-
-getWindowTitle :: XMonad.Window -> XMonad.Display -> IO String
-getWindowTitle w d = XMonad.getTextProperty d w XMonad.wM_NAME >>= (peekCString . XMonad.tp_value)
-
-getWorkspaceWindowTitles :: W.Workspace i l XMonad.Window -> XMonad.X [String]
-getWorkspaceWindowTitles w = do
-  XMonad.withDisplay $ \d ->
-    XMonad.liftIO $
-      traverse
-        (`getWindowTitle` d)
-        (W.integrate' $ W.stack w)
-
-logScreen :: WorkspaceState -> W.Workspace XMonad.WorkspaceId (XMonad.Layout XMonad.Window) XMonad.Window -> XMonad.X Workspace'
-logScreen st ws =
-  getWorkspaceWindowTitles ws >>= \windowTitles ->
+statusBarConfig :: StatusBarConfig
+statusBarConfig =
+  StatusBar.statusBarProp "xmobar-solomon" $
     pure $
-      Workspace'
-        { index = read $ W.tag ws, -- VERY SAFE
-          state = st,
-          windows = windowTitles
+      PP.def
+        { ppCurrent = (<> "=visible"),
+          ppLayout = id,
+          ppTitle = id,
+          ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
+          ppHiddenNoWindows = (<> "=empty"),
+          ppWsSep = ",",
+          ppSep = "|"
         }
 
-logToJSON :: XMonad.X String
-logToJSON = do
-  -- workspace list
-  winset <- XMonad.gets XMonad.windowset
-  visible <- traverse (logScreen Visible . W.workspace) (W.visible winset)
-  current <- logScreen Current . W.workspace $ W.current winset
-  hidden <- traverse (logScreen Hidden) (W.hidden winset)
-  let workspaces = Data.List.sortBy (\x y -> compare (index x) (index y)) $ current : visible <> hidden
-
-  -- layout description
-  let layout = XMonad.description . W.layout . W.workspace . W.current $ winset
-
-  -- window title
-  wt <- maybe (pure "") (fmap show . NamedWindows.getName) . W.peek $ winset
-
-  let result =
-        UTF8.toString $
-          BS.toStrict $
-            Aeson.encode $
-              Aeson.object
-                [ "workspaces"
-                    Aeson..= Aeson.object (fmap (uncurry (Aeson..=) . ((Aeson.fromString . show . index) &&& id)) workspaces),
-                  "layout" Aeson..= layout,
-                  "title" Aeson..= ppTitle PP.def (ppTitleSanitize PP.def wt)
-                ]
-
-  pure result
-
-statusBarConfig :: StatusBarConfig
-statusBarConfig = statusBarProp "xmobar-solomon"
 
 --------------------------------------------------------------------------------
 -- Main
@@ -444,4 +360,4 @@ myConfig =
 
 main :: IO ()
 main =
-  XMonad.xmonad . ewmhFullscreen . ewmh . pagerHints . docks $ withNavigation2DConfig myNav2DConf myConfig
+  XMonad.xmonad . ewmhFullscreen . ewmh . xmobarProp . pagerHints . docks $ withNavigation2DConfig myNav2DConf myConfig
