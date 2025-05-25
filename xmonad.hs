@@ -1,19 +1,9 @@
 module Main where
 
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
-import Control.Monad.IO.Class (liftIO)
-import Data.Char (toLower, isSpace)
 import Data.Foldable (traverse_)
-import Data.Function (on)
-import Data.List (isInfixOf)
 import Data.Map qualified as M
-import Data.Monoid (All (..))
-import Data.Text qualified as Text
-import Data.Text.IO qualified as Text.IO
-import System.Exit (exitSuccess)
 import XMonad qualified
-import XMonad.Actions.CopyWindow (kill1)
 import XMonad.Actions.Navigation2D (Navigation2DConfig (..), centerNavigation, lineNavigation, singleWindowRect, windowGo, windowSwap, withNavigation2DConfig)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks, manageDocks)
@@ -37,10 +27,6 @@ import XMonad.Layout.SubLayouts (GroupMsg (..), pullGroup, subLayout)
 import XMonad.Layout.Tabbed (Direction2D (..), Theme (..), addTabs)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.WindowNavigation (windowNavigation)
-import XMonad.Prompt (XPConfig (..), XPPosition (..), emacsLikeXPKeymap)
-import XMonad.Prompt.ConfirmPrompt (confirmPrompt)
-import XMonad.Prompt.Shell (shellPrompt)
-import XMonad.Prompt.XMonad (xmonadPromptCT)
 import XMonad.StackSet qualified as W
 import XMonad.Util.EZConfig (mkKeymap)
 import XMonad.Hooks.DynamicLog (xmobarProp)
@@ -149,8 +135,6 @@ flex =
 
 myTerminal = "st"
 
-myLauncher = XMonad.Prompt.Shell.shellPrompt promptConfig
-
 myWorkspaces = map (show @Int) [1 .. 9]
 
 myManageHook =
@@ -162,93 +146,22 @@ myManageHook =
     ]
 
 --------------------------------------------------------------------------------
--- Prompts
-
-promptConfig :: XPConfig
-promptConfig =
-  XMonad.def
-    { position = Top,
-      height = 20,
-      font = myFont,
-      bgColor = background,
-      fgColor = orange,
-      fgHLight = "#d33682",
-      bgHLight = "#073642",
-      promptBorderWidth = 0,
-      maxComplRows = Just 12,
-      alwaysHighlight = True,
-      promptKeymap = emacsLikeXPKeymap,
-      searchPredicate = isInfixOf `on` map toLower
-    }
-
--- | X Session logout and system shutdown/reboot prompt
-exitPrompt :: XMonad.X ()
-exitPrompt = xmonadPromptCT "Exit" commands promptConfig
-  where
-    commands =
-      [ ("1: Logout", XMonad.io exitSuccess),
-        ("2: Shutdown", XMonad.spawn "systemctl poweroff"),
-        ("3: Reboot", XMonad.spawn "systemctl reboot"),
-        ("4: Reload XMonad", restart)
-      ]
-    restart = do
-      XMonad.spawn "pkill trayer"
-      XMonad.spawn "xmonad --restart"
-
--- | Kill the focused window
-closeWindowPrompt :: XMonad.X ()
-closeWindowPrompt = confirmPrompt promptConfig "Close Window" kill1
-
--- | Screenshot prompt
-scrotPrompt :: XMonad.X ()
-scrotPrompt = xmonadPromptCT "Screenshot Options" commands promptConfig
-  where
-    commands =
-      [ ("1: Capture Screen", XMonad.spawn "scrot -F /home/solomon/Public/screenshots/%Y-%m-%d:%H:%M:%s.png"),
-        ("2: Capture Selection", XMonad.spawn "scrot -s -F /home/solomon/Public/screenshots/%Y-%m-%d:%H:%M:%s.png"),
-        ("3: Capture All Screens", XMonad.spawn "scrot -m -F /home/solomon/Public/screenshots/%Y-%m-%d:%H:%M:%s.png"),
-        ("4: Capture with 3 second countdown", XMonad.spawn "scrot -d 3 -c -F /home/solomon/Public/screenshots/%Y-%m-%d:%H:%M:%s.png")
-      ]
-
-layoutPrompt :: XMonad.X ()
-layoutPrompt = xmonadPromptCT "Window Commands" commands promptConfig
-  where
-    commands =
-      [ ("1: Tabbed Layout", XMonad.sendMessage (XMonad.JumpToLayout "Tabs")),
-        ("2: Two Column Layout", XMonad.sendMessage (XMonad.JumpToLayout "Flex"))
-      ]
-
-emojiPrompt :: XMonad.X ()
-emojiPrompt = do
-  emojis <- liftIO $ Text.lines <$> Text.IO.readFile "/home/solomon/.local/share/emoji"
-  let action e = XMonad.spawn $ "echo " <> e <> " | xclip -sel clip"
-      promptData = fmap (\e -> (Text.unpack e, action $ Text.unpack $ Text.takeWhile (not . isSpace) e)) emojis
-  xmonadPromptCT "Emojis" promptData promptConfig
-
-bookmarkPrompt :: XMonad.X ()
-bookmarkPrompt = do
-  bookmarks <- liftIO $ Text.lines <$> Text.IO.readFile "/home/solomon/.local/share/bookmarks"
-  let action e = XMonad.spawn $ "xdg-open " <> e
-      promptData = fmap (\e -> (Text.unpack e, action $ Text.unpack e)) bookmarks
-  xmonadPromptCT "Bookmarks" promptData promptConfig
-
---------------------------------------------------------------------------------
 -- Keybindings
 
 workSpaceNav :: XMonad.XConfig a -> [(String, XMonad.X ())]
 workSpaceNav c = do
   (i, j) <- zip (map (show @Int) [1 .. 9]) $ XMonad.workspaces c
   (m, f) <- [("M-", W.greedyView), ("M-S-", W.shift)]
-  return (m ++ i, XMonad.windows $ f j)
+  return (m <> i, XMonad.windows $ f j)
 
 myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ())
 myKeys c =
   mkKeymap c $
     -- System
     [ ("M-<Space> q", exitPrompt),
-      ("M-<Space> w", layoutPrompt),
-      ("M-<Space> e", emojiPrompt),
-      ("M-<Backspace>", closeWindowPrompt),
+      ("M-w", nextLayout),
+      ("M-e", emojiPrompt),
+      ("M-<Backspace>", killWindow),
       ("M-S-<Backspace>", XMonad.withUnfocused XMonad.killWindow),
       ("<XF86AudioMute>", toggleMute),
       ("<XF86AudioRaiseVolume>", volumeUp),
@@ -256,7 +169,7 @@ myKeys c =
       ("<XF86MonBrightnessUp>", XMonad.spawn "brightnessctl set 5%+"),
       ("<XF86MonBrightnessDown>", XMonad.spawn "brightnessctl set 5%-"),
       ("M-<XF86AudioMute>", toggleDunst >> toggleMute),
-      ("<Print>", scrotPrompt),
+      ("<Print>", takeScreenshot),
       ("C-<Space>", dunstClose),
       ("C-S-<Space>", dunstCloseAll)
     ]
@@ -294,15 +207,22 @@ myKeys c =
       <> workSpaceNav c
       <> [ ("M-<Return>", XMonad.spawn myTerminal),
            ("M-p", myLauncher),
-           ("M-t", bookmarkPrompt)
+           ("M-t", openBookmark)
          ]
   where
+    nextLayout = XMonad.sendMessage XMonad.NextLayout
     toggleDunst = XMonad.spawn "dunstctl set-paused toggle"
     toggleMute = XMonad.spawn "pactl set-sink-mute @DEFAULT_SINK@ toggle"
     dunstClose = XMonad.spawn "dunstctl close"
     dunstCloseAll = XMonad.spawn "dunstctl close-all"
     volumeUp = XMonad.spawn "pactl set-sink-volume @DEFAULT_SINK@ +5%"
     volumeDown = XMonad.spawn "pactl set-sink-volume @DEFAULT_SINK@ -5%"
+    openBookmark = XMonad.spawn ".local/share/bookmarks"
+    takeScreenshot = XMonad.spawn "screenshot-prompt"
+    emojiPrompt = XMonad.spawn "emoji-prompt"
+    killWindow = XMonad.spawn "kill-window-prompt"
+    exitPrompt = XMonad.spawn "exit-prompt"
+    myLauncher = XMonad.spawn "dmenu_run"
 
 myNav2DConf :: Navigation2DConfig
 myNav2DConf =
