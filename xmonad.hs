@@ -3,8 +3,10 @@ module Main where
 import Control.Exception (SomeException, try)
 import Data.Foldable (traverse_)
 import Data.Map qualified as M
+import Data.Maybe (fromMaybe)
 import XMonad qualified
 import XMonad.Actions.Navigation2D (Navigation2DConfig (..), centerNavigation, lineNavigation, singleWindowRect, windowGo, windowSwap, withNavigation2DConfig)
+import XMonad.Hooks.DynamicLog (xmobarProp)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks, manageDocks)
 import XMonad.Hooks.StatusBar (StatusBarConfig)
@@ -28,8 +30,8 @@ import XMonad.Layout.Tabbed (Direction2D (..), Theme (..), addTabs)
 import XMonad.Layout.ThreeColumns (ThreeCol (ThreeColMid))
 import XMonad.Layout.WindowNavigation (windowNavigation)
 import XMonad.StackSet qualified as W
+import XMonad.Util.Dmenu (menuMapArgs)
 import XMonad.Util.EZConfig (mkKeymap)
-import XMonad.Hooks.DynamicLog (xmobarProp)
 
 --------------------------------------------------------------------------------
 -- Theme
@@ -80,7 +82,6 @@ myTabTheme =
 -- Layouts
 
 gap :: Int
-
 gap = 4
 
 myBorder :: XMonad.Dimension
@@ -148,67 +149,79 @@ myManageHook =
 --------------------------------------------------------------------------------
 -- Keybindings
 
-workSpaceNav :: XMonad.XConfig a -> [(String, XMonad.X ())]
+-- | Keybinding with description: (key, description, action)
+type KeyBinding = (String, String, XMonad.X ())
+
+workSpaceNav :: XMonad.XConfig a -> [KeyBinding]
 workSpaceNav c = do
   (i, j) <- zip (map (show @Int) [1 .. 9]) $ XMonad.workspaces c
-  (m, f) <- [("M-", W.greedyView), ("M-S-", W.shift)]
-  return (m <> i, XMonad.windows $ f j)
+  (m, f, desc) <- [("M-", W.greedyView, "View workspace "), ("M-S-", W.shift, "Move to workspace ")]
+  return (m <> i, desc <> i, XMonad.windows $ f j)
 
-myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ())
-myKeys c =
-  mkKeymap c $
-    -- System
-    [ ("M-<Space> q", exitPrompt),
-      ("M-w", nextLayout),
-      ("M-e", emojiPrompt),
-      ("M-<Backspace>", killWindow),
-      ("M-S-<Backspace>", XMonad.withUnfocused XMonad.killWindow),
-      ("<XF86AudioMute>", toggleMute),
-      ("<XF86AudioRaiseVolume>", volumeUp),
-      ("<XF86AudioLowerVolume>", volumeDown),
-      ("<XF86MonBrightnessUp>", XMonad.spawn "brightnessctl set 5%+"),
-      ("<XF86MonBrightnessDown>", XMonad.spawn "brightnessctl set 5%-"),
-      ("M-<XF86AudioMute>", toggleDunst >> toggleMute),
-      ("<Print>", takeScreenshot),
-      ("C-<Space>", dunstClose),
-      ("C-S-<Space>", dunstCloseAll)
+showKeyBindings :: [KeyBinding] -> XMonad.X ()
+showKeyBindings bindings = do
+  selection <- menuMapArgs "dmenu" ["-l", "20"] bindingMap
+  fromMaybe (pure ()) selection
+  where
+    bindingMap = M.fromList [(key <> "  " <> desc, action) | (key, desc, action) <- bindings]
+
+myKeyBindings :: XMonad.XConfig a -> [KeyBinding]
+myKeyBindings c =
+  -- System
+  [ ("M-<Space> q", "Exit prompt", exitPrompt),
+    ("M-<Space> b", "Battery status", XMonad.spawn "dmenu-acpi.sh"),
+    ("M-/", "Show keybindings", showKeyBindings $ myKeyBindings c),
+    ("M-w", "Next layout", nextLayout),
+    ("M-e", "Emoji prompt", emojiPrompt),
+    ("M-<Backspace>", "Kill focused window", killWindow),
+    ("M-S-<Backspace>", "Kill unfocused window", XMonad.withUnfocused XMonad.killWindow),
+    ("<XF86AudioMute>", "Toggle mute", toggleMute),
+    ("<XF86AudioRaiseVolume>", "Volume up", volumeUp),
+    ("<XF86AudioLowerVolume>", "Volume down", volumeDown),
+    ("<XF86MonBrightnessUp>", "Brightness up", XMonad.spawn "brightnessctl set 5%+"),
+    ("<XF86MonBrightnessDown>", "Brightness down", XMonad.spawn "brightnessctl set 5%-"),
+    ("M-<XF86AudioMute>", "Toggle dunst and mute", toggleDunst >> toggleMute),
+    ("<Print>", "Take screenshot", takeScreenshot),
+    ("C-<Space>", "Close notification", dunstClose),
+    ("C-S-<Space>", "Close all notifications", dunstCloseAll)
+  ]
+    <>
+    -- Navigation
+    [ ("M-j", "Go down", windowGo D False),
+      ("M-k", "Go up", windowGo U False),
+      ("M-h", "Go left", windowGo L False),
+      ("M-l", "Go right", windowGo R False),
+      ("M-;", "Focus previous tab", XMonad.windows W.focusUp),
+      ("M-'", "Focus next tab", XMonad.windows W.focusDown)
     ]
-      <>
-      -- Navigate between windows
-      [ ("M-j", windowGo D False),
-        ("M-k", windowGo U False),
-        ("M-h", windowGo L False),
-        ("M-l", windowGo R False),
-        -- Navigate between tabs
-        ("M-;", XMonad.windows W.focusUp),
-        ("M-'", XMonad.windows W.focusDown),
-        -- Shift tabs
-        ("M-S-;", XMonad.windows W.swapUp),
-        ("M-S-'", XMonad.windows W.swapDown),
-        -- Swap adjacent windows
-        ("M-S-j", windowSwap D False),
-        ("M-S-k", windowSwap U False),
-        ("M-S-h", windowSwap L False),
-        ("M-S-l", windowSwap R False),
-        -- Shrink/Expand windows
-        ("M-[", XMonad.sendMessage XMonad.Shrink),
-        ("M-]", XMonad.sendMessage XMonad.Expand),
-        ("M-r", XMonad.sendMessage $ Toggle MIRROR),
-        -- Full Screen a window
-        ("M-<F11>", XMonad.sendMessage $ Toggle FULL),
-        -- "merge with sublayout"
-        ("M-C-h", XMonad.sendMessage . pullGroup $ L),
-        ("M-C-l", XMonad.sendMessage . pullGroup $ R),
-        ("M-C-j", XMonad.sendMessage . pullGroup $ D),
-        ("M-C-k", XMonad.sendMessage . pullGroup $ U),
-        -- Unmerge a tab
-        ("M-g", XMonad.withFocused (XMonad.sendMessage . UnMerge))
-      ]
-      <> workSpaceNav c
-      <> [ ("M-<Return>", XMonad.spawn myTerminal),
-           ("M-p", myLauncher),
-           ("M-t", openBookmark)
-         ]
+    <>
+    -- Window Management
+    [ ("M-S-;", "Swap with previous", XMonad.windows W.swapUp),
+      ("M-S-'", "Swap with next", XMonad.windows W.swapDown),
+      ("M-S-j", "Swap down", windowSwap D False),
+      ("M-S-k", "Swap up", windowSwap U False),
+      ("M-S-h", "Swap left", windowSwap L False),
+      ("M-S-l", "Swap right", windowSwap R False),
+      ("M-[", "Shrink window", XMonad.sendMessage XMonad.Shrink),
+      ("M-]", "Expand window", XMonad.sendMessage XMonad.Expand),
+      ("M-r", "Toggle mirror", XMonad.sendMessage $ Toggle MIRROR),
+      ("M-<F11>", "Toggle fullscreen", XMonad.sendMessage $ Toggle FULL)
+    ]
+    <>
+    -- Sublayouts
+    [ ("M-C-h", "Merge left", XMonad.sendMessage . pullGroup $ L),
+      ("M-C-l", "Merge right", XMonad.sendMessage . pullGroup $ R),
+      ("M-C-j", "Merge down", XMonad.sendMessage . pullGroup $ D),
+      ("M-C-k", "Merge up", XMonad.sendMessage . pullGroup $ U),
+      ("M-g", "Unmerge window", XMonad.withFocused (XMonad.sendMessage . UnMerge))
+    ]
+    <> workSpaceNav c
+    <>
+    -- Launchers
+    [ ("M-<Return>", "Open terminal", XMonad.spawn myTerminal),
+      ("M-p", "Open launcher", myLauncher),
+      ("M-t", "Open bookmark", openBookmark)
+    ]
   where
     nextLayout = XMonad.sendMessage XMonad.NextLayout
     toggleDunst = XMonad.spawn "dunstctl set-paused toggle"
@@ -223,6 +236,9 @@ myKeys c =
     killWindow = XMonad.spawn "kill-window-prompt"
     exitPrompt = XMonad.spawn "exit-prompt"
     myLauncher = XMonad.spawn "dmenu_run"
+
+myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ())
+myKeys c = mkKeymap c [(key, action) | (key, _, action) <- myKeyBindings c]
 
 myNav2DConf :: Navigation2DConfig
 myNav2DConf =
@@ -250,7 +266,6 @@ statusBarConfig =
           ppWsSep = ",",
           ppSep = "|"
         }
-
 
 --------------------------------------------------------------------------------
 -- Main
