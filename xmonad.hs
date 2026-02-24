@@ -169,7 +169,7 @@ myKeyBindings :: XMonad.XConfig a -> [KeyBinding]
 myKeyBindings c =
   -- System
   [ ("M-<Space> q", "Exit prompt", exitPrompt),
-    ("M-b", "Battery status", XMonad.spawn "./sripts/dmenu-acpi.sh"),
+    ("M-b", "Battery status", XMonad.spawn "bash -c 'status=$(acpi -b -a 2>/dev/null); [ -z \"$status\" ] && status=\"No ACPI info available\"; echo \"$status\" | dmenu -l 5 -p \"Power:\"'"),
     ("M-/", "Show keybindings", showKeyBindings $ myKeyBindings c),
     ("M-w", "Next layout", nextLayout),
     ("M-e", "Emoji prompt", emojiPrompt),
