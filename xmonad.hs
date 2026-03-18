@@ -9,7 +9,6 @@ import XMonad.Actions.Navigation2D (Navigation2DConfig (..), centerNavigation, l
 import XMonad.Hooks.DynamicLog (xmobarProp)
 import XMonad.Hooks.EwmhDesktops (ewmh, ewmhFullscreen)
 import XMonad.Hooks.ManageDocks (avoidStruts, docks, manageDocks)
-import XMonad.Hooks.StatusBar (StatusBarConfig)
 import XMonad.Hooks.StatusBar qualified as StatusBar
 import XMonad.Hooks.StatusBar.PP (PP (..))
 import XMonad.Hooks.StatusBar.PP qualified as PP
@@ -253,20 +252,6 @@ myNav2DConf =
 --------------------------------------------------------------------------------
 -- Status Bar
 
-statusBarConfig :: StatusBarConfig
-statusBarConfig =
-  StatusBar.statusBarProp "xmobar-solomon" $
-    pure $
-      PP.def
-        { ppCurrent = (<> "=visible"),
-          ppLayout = id,
-          ppTitle = id,
-          ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
-          ppHiddenNoWindows = (<> "=empty"),
-          ppWsSep = ",",
-          ppSep = "|"
-        }
-
 --------------------------------------------------------------------------------
 -- Main
 
@@ -280,7 +265,7 @@ myStartupHook = do
   traverse_ (traverse_ XMonad.spawn . lines) commands
 
 myConfig =
-  StatusBar.withSB statusBarConfig $
+  StatusBar.dynamicEasySBs barSpawner $
     XMonad.def
       { XMonad.layoutHook = myLayoutHook,
         XMonad.manageHook = myManageHook <> XMonad.manageHook XMonad.def,
@@ -292,6 +277,18 @@ myConfig =
         XMonad.startupHook = myStartupHook,
         XMonad.borderWidth = myBorder
       }
+  where
+    barSpawner _ = pure $ StatusBar.statusBarPropTo "_XMONAD_LOG" "xmobar-solomon" $
+      pure $
+        PP.def
+          { ppCurrent = (<> "=visible"),
+            ppLayout = id,
+            ppTitle = id,
+            ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
+            ppHiddenNoWindows = (<> "=empty"),
+            ppWsSep = ",",
+            ppSep = "|"
+          }
 
 main :: IO ()
 main =
