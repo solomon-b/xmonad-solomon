@@ -159,7 +159,7 @@ workSpaceNav c = do
 
 showKeyBindings :: [KeyBinding] -> XMonad.X ()
 showKeyBindings bindings = do
-  selection <- menuMapArgs "dmenu" ["-l", "20"] bindingMap
+  selection <- menuMapArgs "dmenu" ["-i", "-l", "20"] bindingMap
   fromMaybe (pure ()) selection
   where
     bindingMap = M.fromList [(key <> "  " <> desc, action) | (key, desc, action) <- bindings]
