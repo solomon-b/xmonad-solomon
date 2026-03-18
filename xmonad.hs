@@ -233,7 +233,17 @@ myKeyBindings c =
     takeScreenshot = XMonad.spawn "screenshot-prompt"
     emojiPrompt = XMonad.spawn "emoji-prompt"
     killWindow = XMonad.spawn "kill-window-prompt"
-    exitPrompt = XMonad.spawn "exit-prompt"
+    exitPrompt = do
+      selection <- menuMapArgs "dmenu" ["-i", "-l", "10"] options
+      fromMaybe (pure ()) selection
+      where
+        options =
+          M.fromList
+            [ ("1: Restart XMonad", XMonad.restart "xmonad-solomon" True),
+              ("2: Logout", XMonad.spawn "loginctl terminate-session $XDG_SESSION_ID"),
+              ("3: Shutdown", XMonad.spawn "systemctl poweroff"),
+              ("4: Reboot", XMonad.spawn "systemctl reboot")
+            ]
     myLauncher = XMonad.spawn "dmenu_run"
 
 myKeys :: XMonad.XConfig a -> M.Map (XMonad.KeyMask, XMonad.KeySym) (XMonad.X ())
