@@ -239,7 +239,7 @@ myKeyBindings c =
       where
         options =
           M.fromList
-            [ ("1: Restart XMonad", XMonad.restart "xmonad-solomon" True),
+            [ ("1: Restart XMonad", XMonad.restart "/home/solomon/.local/bin/xmonad-solomon" True),
               ("2: Logout", XMonad.spawn "loginctl terminate-session $XDG_SESSION_ID"),
               ("3: Shutdown", XMonad.spawn "systemctl poweroff"),
               ("4: Reboot", XMonad.spawn "systemctl reboot")
@@ -275,31 +275,34 @@ myStartupHook = do
   traverse_ (traverse_ XMonad.spawn . lines) commands
 
 myConfig =
-  StatusBar.dynamicEasySBs barSpawner $
-    XMonad.def
-      { XMonad.layoutHook = myLayoutHook,
-        XMonad.manageHook = myManageHook <> XMonad.manageHook XMonad.def,
-        XMonad.modMask = XMonad.mod4Mask,
-        XMonad.keys = myKeys,
-        XMonad.workspaces = myWorkspaces,
-        XMonad.normalBorderColor = myNormalBorderColor,
-        XMonad.focusedBorderColor = myFocusedBorderColor,
-        XMonad.startupHook = myStartupHook,
-        XMonad.borderWidth = myBorder
-      }
+  StatusBar.dynamicSBs barSpawner $
+    docks
+      XMonad.def
+        { XMonad.layoutHook = myLayoutHook,
+          XMonad.manageHook = myManageHook <> XMonad.manageHook XMonad.def,
+          XMonad.modMask = XMonad.mod4Mask,
+          XMonad.keys = myKeys,
+          XMonad.workspaces = myWorkspaces,
+          XMonad.normalBorderColor = myNormalBorderColor,
+          XMonad.focusedBorderColor = myFocusedBorderColor,
+          XMonad.startupHook = myStartupHook,
+          XMonad.borderWidth = myBorder
+        }
   where
-    barSpawner _ = pure $ StatusBar.statusBarPropTo "_XMONAD_LOG" "xmobar-solomon" $
+    barSpawner _ =
       pure $
-        PP.def
-          { ppCurrent = (<> "=visible"),
-            ppLayout = id,
-            ppTitle = id,
-            ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
-            ppHiddenNoWindows = (<> "=empty"),
-            ppWsSep = ",",
-            ppSep = "|"
-          }
+        StatusBar.statusBarPropTo "_XMONAD_LOG" "xmobar-solomon" $
+          pure $
+            PP.def
+              { ppCurrent = (<> "=visible"),
+                ppLayout = id,
+                ppTitle = id,
+                ppHidden = \ws -> if ws == "NSP" then mempty else ws <> "=hidden",
+                ppHiddenNoWindows = (<> "=empty"),
+                ppWsSep = ",",
+                ppSep = "|"
+              }
 
 main :: IO ()
 main =
-  XMonad.xmonad . ewmhFullscreen . ewmh . xmobarProp . pagerHints . docks $ withNavigation2DConfig myNav2DConf myConfig
+  XMonad.xmonad . ewmhFullscreen . ewmh . xmobarProp . pagerHints $ withNavigation2DConfig myNav2DConf myConfig
